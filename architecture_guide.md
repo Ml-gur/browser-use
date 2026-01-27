@@ -111,6 +111,20 @@ Manages the context window and constructs messages for the LLM.
     *   `action`: A list of actions to execute.
 *   **Vision**: If the model supports vision (e.g., GPT-4o), screenshots are included in the prompt to enhance understanding.
 
+### 3.1 LLM Call Flow
+
+The invocation of the LLM happens within the `Agent` class via the following sequence:
+
+1.  **`Agent.step()`**: The main step loop calls `self._get_next_action()`.
+2.  **`_get_next_action()`**: Retrieves input messages from `MessageManager` and calls `self.get_model_output(input_messages)`.
+3.  **`get_model_output()`**:
+    *   Pre-processes messages (e.g., URL shortening).
+    *   Calls `self.llm.ainvoke(input_messages, output_format=self.AgentOutput, session_id=self.session_id)`.
+    *   Parses the structured response into an `AgentOutput` object.
+    *   Handles errors (like rate limits) by attempting to switch to a fallback LLM if configured.
+
+The `llm` object is any class implementing the `BaseChatModel` protocol. A key implementation is `ChatBrowserUse` (`browser_use.llm.browser_use.chat.py`), which interfaces with the Browser Use Cloud API for optimized models.
+
 ## 4. Execution Flow Example
 
 1.  **Start**: `agent = Agent(task="Go to google.com and search for 'browser-use'", llm=...)`
