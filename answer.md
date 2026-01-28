@@ -178,3 +178,41 @@ The core tools available to the LLM are defined in `browser_use/tools/service.py
     }
     ```
 4.  **Execution**: `Agent.multi_act` parses this JSON, identifies the key `click`, and calls the corresponding registered function.
+
+## 6. Governance Rules (Prompts & Schemas)
+
+To ensure the LLM understands the user input and calls the right tools, `browser-use` employs a robust system of prompts and constraints.
+
+### The System Prompt
+The behavior of the LLM is governed by the system prompt, typically located in `browser_use/agent/system_prompts/system_prompt.md`. This prompt establishes the "rules of the game":
+
+1.  **Persona**: Defines the LLM as an "AI agent designed to operate in an iterative loop to automate browser tasks."
+2.  **Input Format**: Explicitly describes the XML-like structure of the input tags:
+    -   `<agent_history>`: Chronological actions and results.
+    -   `<browser_state>`: The text representation of the DOM with unique **numeric indexes**.
+    -   `<browser_vision>`: The screenshot (the "ground truth").
+3.  **Browser Rules**: strict operational constraints, such as:
+    -   "Only interact with elements that have a numeric [index] assigned."
+    -   "Only use indexes that are explicitly provided."
+    -   "If research is needed, open a new tab."
+4.  **Reasoning Rules**: Mandates a structured thought process in the `thinking` field:
+    -   Analyze history and recent results.
+    -   Explicitly judge the success/failure of the previous action.
+    -   Plan the next goal.
+
+### Output Schema Enforcement
+The LLM is restricted to a strict JSON output schema defined by the `AgentOutput` class (in `browser_use/agent/views.py`). This schema enforces:
+
+-   **`thinking`**: A required string field for chain-of-thought reasoning.
+-   **`evaluation_previous_goal`**: A required field to force self-reflection on the previous step's outcome.
+-   **`next_goal`**: A required field to state the immediate next objective.
+-   **`action`**: A list of actions (cannot be empty).
+
+By forcing this structure (via `response_format` in OpenAI or `tool_choice` in Anthropic), the library ensures the LLM always provides both the *reasoning* for its decision and the *command* to execute it.
+
+### Error Handling & Self-Correction
+The `Agent` class (`browser_use/agent/service.py`) implements self-correction mechanisms:
+
+-   **Empty Output Retry**: If the LLM returns no actions, the agent sends a user message: *"You forgot to return an action. Please respond with a valid JSON action..."*
+-   **Validation Errors**: If the output doesn't match the schema, the validation error is caught, and the agent may retry or log the failure.
+-   **Visual Verification**: The system prompt instructs the LLM to use the `<browser_vision>` (screenshot) as the "GROUND TRUTH" to verify if actions (like clicks or typing) actually succeeded, correcting itself in the next step if they failed.
