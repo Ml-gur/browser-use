@@ -216,3 +216,29 @@ The `Agent` class (`browser_use/agent/service.py`) implements self-correction me
 -   **Empty Output Retry**: If the LLM returns no actions, the agent sends a user message: *"You forgot to return an action. Please respond with a valid JSON action..."*
 -   **Validation Errors**: If the output doesn't match the schema, the validation error is caught, and the agent may retry or log the failure.
 -   **Visual Verification**: The system prompt instructs the LLM to use the `<browser_vision>` (screenshot) as the "GROUND TRUTH" to verify if actions (like clicks or typing) actually succeeded, correcting itself in the next step if they failed.
+
+## 7. Output Structure & Verification
+
+### Structuring the Final Output
+The agent "knows" how to format the output for the user because the `AgentOutput` schema includes a specific `done` action. The structure depends on whether the user requested structured data or a general response.
+
+1.  **General Response (`DoneAction`)**:
+    -   Used for open-ended tasks (e.g., "Find the cheapest flight").
+    -   Schema: `{ "text": "...", "success": boolean, "files_to_display": [...] }`.
+    -   The `text` field contains the natural language summary.
+
+2.  **Structured Response (`StructuredOutputAction`)**:
+    -   Used when the user initializes the Agent with a specific Pydantic model (e.g., `output_model=ProductList`).
+    -   The library dynamically swaps the `DoneAction` with a `StructuredOutputAction` via `Tools.use_structured_output_action`.
+    -   Schema: `{ "data": { ...typed fields... }, "success": boolean }`.
+
+### Knowing "What the User Wants"
+The LLM is guided to the correct answer through the system prompt's `<task_completion_rules>` and `<user_request>` sections:
+
+-   **`<user_request>`**: The user's initial prompt is always visible in the context.
+-   **`<task_completion_rules>`**: Explicit instructions tell the LLM:
+    -   "Set `success` to `true` only if the full USER REQUEST has been completed."
+    -   "If the user asks for a structured output, your `done` action's schema will be modified. Take this schema into account!"
+    -   "Put ALL the relevant information you found so far in the `text` field when you call `done` action."
+
+This combination of **schema enforcement** (code) and **instruction tuning** (prompts) ensures the agent delivers the result in the format the user expects.
