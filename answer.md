@@ -89,6 +89,49 @@ The `ChatAnthropic` class implements `ainvoke` using Anthropic's **Tool Use** ca
     ```
 3.  **Extraction**: It extracts the input arguments from the `tool_use` block in the response and validates them against the `output_format` model.
 
-## Summary
+## 4. Tool Execution
 
-The `Agent` treats the LLM as a black box that accepts messages and returns a structured `AgentOutput` object. The specific LLM implementation (`ChatOpenAI`, `ChatAnthropic`, etc.) handles the nuances of the provider's API (JSON mode vs. Tool calling) to ensure the output matches the required schema.
+Once the `Agent` receives the `AgentOutput` (containing a list of actions), it executes them.
+
+### The Flow
+1.  **`Agent.multi_act`** (`browser_use/agent/service.py`):
+    Iterates through the list of actions returned by the LLM.
+    ```python
+    for i, action in enumerate(actions):
+        # ...
+        result = await self.tools.act(action, browser_session=self.browser_session, ...)
+    ```
+
+2.  **`Tools.act`** (`browser_use/tools/service.py`):
+    The `Tools` service (acting as a facade) delegates the execution to the `Registry`.
+    ```python
+    for action_name, params in action.model_dump(exclude_unset=True).items():
+        # ...
+        result = await self.registry.execute_action(
+            action_name=action_name,
+            params=params,
+            browser_session=browser_session,
+            # ...
+        )
+    ```
+
+3.  **`Registry.execute_action`** (`browser_use/tools/registry/service.py`):
+    The registry manages the actual function calls.
+    -   **Lookup**: Finds the registered action function by name (e.g., 'click', 'type').
+    -   **Validation**: Validates the parameters against the Pydantic model defined for that action.
+    -   **Dependency Injection**: Injects context objects like `browser_session`, `page_extraction_llm`, or `file_system` if the action function requires them.
+    -   **Execution**: Calls the decorated function (e.g., `_click_by_index`).
+
+### Action Registration
+Actions are defined in `browser_use/tools/service.py` using the `@self.registry.action` decorator.
+
+```python
+@self.registry.action(
+    'Click element by index...',
+    param_model=ClickElementAction,
+)
+async def click(params: ClickElementAction, browser_session: BrowserSession):
+    # Implementation...
+```
+
+The registry ensures that when the LLM requests a `click` action, this function is called with the correct parameters and the active `browser_session`.
