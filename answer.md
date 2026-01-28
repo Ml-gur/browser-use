@@ -135,3 +135,46 @@ async def click(params: ClickElementAction, browser_session: BrowserSession):
 ```
 
 The registry ensures that when the LLM requests a `click` action, this function is called with the correct parameters and the active `browser_session`.
+
+## 5. When and What Tools Are Called
+
+### When
+The LLM calls tools iteratively during the `Agent.step` loop (in `browser_use/agent/service.py`):
+
+1.  **Context Preparation**: `_prepare_context` captures the current browser state (DOM, screenshot).
+2.  **LLM Call**: `_get_next_action` calls the LLM with this state and history.
+3.  **Decision**: The LLM analyzes the screenshot/text and decides the next step(s).
+4.  **Action Execution**: `_execute_actions` (via `multi_act`) runs the tools selected by the LLM.
+
+### What
+The core tools available to the LLM are defined in `browser_use/tools/service.py` and mapped to input models in `browser_use/tools/views.py`:
+
+-   **`search`** (`SearchAction`): Google/Bing search.
+-   **`navigate`** (`NavigateAction`): Go to a specific URL.
+-   **`go_back`** (`NoParamsAction`): Navigate back in history.
+-   **`click`** (`ClickElementAction`): Click an element by index (from DOM state) or coordinates.
+-   **`input`** (`InputTextAction`): Type text into an element.
+-   **`scroll`** (`ScrollAction`): Scroll the page (up/down/to element).
+-   **`send_keys`** (`SendKeysAction`): Send keyboard shortcuts (e.g., Enter, Esc).
+-   **`switch_tab` / `switch`** (`SwitchTabAction`): Switch browser tabs.
+-   **`close_tab` / `close`** (`CloseTabAction`): Close the current tab.
+-   **`extract`** (`ExtractAction`): Extract structured data from page text using a secondary LLM call.
+-   **`upload_file`** (`UploadFileAction`): Upload a file to an input element.
+-   **`screenshot`** (`NoParamsAction`): Explicitly take a screenshot.
+-   **`dropdown_options`** (`GetDropdownOptionsAction`): List options in a select menu.
+-   **`select_dropdown`** (`SelectDropdownOptionAction`): Select an option.
+-   **`done`** (`DoneAction` or `StructuredOutputAction`): Signal task completion with optional data/files.
+
+### How (Data Flow)
+1.  **Schema**: The `AgentOutput` model (in `views.py`) contains a list of `ActionModel` objects.
+2.  **Mapping**: The `ActionModel` is dynamically constructed (in `browser_use/tools/registry/service.py`) to include all registered actions as optional fields.
+3.  **Output**: The LLM outputs JSON like:
+    ```json
+    {
+      "thinking": "I need to click the login button.",
+      "action": [
+        {"click": {"index": 12}}
+      ]
+    }
+    ```
+4.  **Execution**: `Agent.multi_act` parses this JSON, identifies the key `click`, and calls the corresponding registered function.
